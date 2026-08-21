@@ -1,12 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, GanttChartSquare, Users } from 'lucide-react'
+import { ArrowLeft, Users } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Button } from '@/components/ui/button'
+import { GanttView } from '@/components/gantt/GanttView'
+import type { Dependency } from '@/lib/db'
 import { TaskSidePanel } from '@/components/tasks/TaskSidePanel'
 import { TaskTable } from '@/components/tasks/TaskTable'
 import { UserManagerDialog } from '@/components/users/UserManagerDialog'
@@ -30,18 +32,43 @@ export default function ProjectDetailPage() {
   const project = useLiveQuery(() => db.projects.get(projectId), [projectId], undefined)
   const taskData = useTasks(projectId)
   const users = useUsers()
+  const EMPTY_DEPS: Dependency[] = []
+  const dependencies = useLiveQuery(() => db.dependencies.toArray(), [], EMPTY_DEPS)
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false)
+  const [tableWidth, setTableWidth] = useState(520)
   const { isSidePanelOpen, panelWidth } = useAppStore()
 
-  const ganttPlaceholderTasks = useMemo(() => taskData.visibleTasks.slice(0, 8), [taskData.visibleTasks])
+  const tableScrollRef = useRef<HTMLDivElement>(null)
+  const ganttScrollRef = useRef<HTMLDivElement>(null)
+
+  const syncGanttScroll = (scrollTop: number) => {
+    if (ganttScrollRef.current) ganttScrollRef.current.scrollTop = scrollTop
+  }
+  const syncTableScroll = (scrollTop: number) => {
+    if (tableScrollRef.current) tableScrollRef.current.scrollTop = scrollTop
+  }
+
+  const handleResizerMouseDown = (e: React.MouseEvent) => {
+    const startX = e.clientX
+    const startWidth = tableWidth
+    const onMouseMove = (ev: MouseEvent) => {
+      setTableWidth(Math.max(300, Math.min(startWidth + ev.clientX - startX, 900)))
+    }
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
 
   if (project === undefined) {
-    return <div className="flex min-h-screen items-center justify-center bg-zinc-50 text-sm text-zinc-500">読み込み中...</div>
+    return <div className="flex h-screen items-center justify-center bg-zinc-50 text-sm text-zinc-500">読み込み中...</div>
   }
 
   if (!project) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-6 text-center">
+      <main className="flex h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-6 text-center">
         <h1 className="text-2xl font-semibold text-zinc-900">プロジェクトが見つかりません</h1>
         <p className="text-sm text-zinc-500">削除済み、または URL が無効です。</p>
         <Link href="/" className="text-sm font-medium text-blue-700">
@@ -52,9 +79,9 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-zinc-50">
+    <main className="flex h-screen flex-col overflow-hidden bg-zinc-50">
       <header className="border-b border-zinc-200 bg-white px-6 py-4 shadow-sm">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-2">
             <Link href="/" className="inline-flex items-center gap-2 text-sm text-zinc-500 transition hover:text-zinc-900">
               <ArrowLeft className="h-4 w-4" />
@@ -76,52 +103,39 @@ export default function ProjectDetailPage() {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 gap-0 px-6 py-6">
-        <section className="min-w-0 flex-1 overflow-hidden rounded-l-3xl border border-zinc-200 bg-white shadow-sm">
-          <TaskTable projectId={projectId} tasks={taskData.orderedTasks} rows={taskData.visibleTasks} users={users} />
+      <div className="flex min-h-0 flex-1 gap-0 px-6 py-6">
+        {/* タスクテーブル（固定幅・リサイズ可） */}
+        <section
+          style={{ width: tableWidth }}
+          className="flex-shrink-0 overflow-hidden rounded-l-3xl border border-zinc-200 bg-white shadow-sm"
+        >
+          <TaskTable
+            projectId={projectId}
+            tasks={taskData.orderedTasks}
+            rows={taskData.visibleTasks}
+            users={users}
+            scrollRef={tableScrollRef}
+            onVerticalScroll={syncGanttScroll}
+          />
         </section>
 
-        <div className="flex w-4 items-stretch justify-center bg-transparent">
-          <div className="my-4 w-1 rounded-full bg-zinc-200" />
+        {/* パネルリサイザー */}
+        <div
+          className="flex w-4 cursor-col-resize items-stretch justify-center"
+          onMouseDown={handleResizerMouseDown}
+        >
+          <div className="my-4 w-1 rounded-full bg-zinc-200 transition-colors hover:bg-zinc-400" />
         </div>
 
-        <section className="flex min-w-[320px] flex-[0.8] flex-col overflow-hidden rounded-r-3xl border border-zinc-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-900">ガントエリア</h2>
-              <p className="text-xs text-zinc-500">Phase 3 で read-only 描画を実装予定</p>
-            </div>
-            <GanttChartSquare className="h-5 w-5 text-zinc-400" />
-          </div>
-          <div className="flex-1 space-y-4 overflow-auto p-5">
-            <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-500">
-              ここにタスクバーと日付グリッドを描画します。現在はレイアウトのプレースホルダーです。
-            </div>
-            <div className="space-y-3">
-              {ganttPlaceholderTasks.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
-                  タスクを追加するとガントのプレビュー項目が表示されます。
-                </div>
-              ) : (
-                ganttPlaceholderTasks.map((task) => (
-                  <div key={task.id} className="rounded-2xl border border-zinc-200 px-4 py-3">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="truncate text-sm font-medium text-zinc-900" style={{ paddingLeft: `${task.depth * 14}px` }}>
-                        {task.name}
-                      </p>
-                      <span className="text-xs text-zinc-500">{task.progress}%</span>
-                    </div>
-                    <div className="h-3 rounded-full bg-zinc-100">
-                      <div className="h-3 rounded-full bg-blue-500" style={{ width: `${Math.max(6, task.progress)}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-zinc-500">
-                      {formatDate(task.startDate)} - {formatDate(task.endDate)}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+        {/* ガントチャート（残り幅を全部使う） */}
+        <section className="min-w-0 flex-1 overflow-hidden rounded-r-3xl border border-zinc-200 bg-white shadow-sm">
+          <GanttView
+            visibleTasks={taskData.visibleTasks}
+            users={users}
+            dependencies={dependencies}
+            scrollRef={ganttScrollRef}
+            onVerticalScroll={syncTableScroll}
+          />
         </section>
       </div>
 

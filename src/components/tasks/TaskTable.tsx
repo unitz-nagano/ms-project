@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type RefObject } from 'react'
 import {
   createColumnHelper,
   columnResizingFeature,
@@ -22,6 +22,8 @@ interface TaskTableProps {
   tasks: Task[]
   rows: OrderedTask[]
   users: User[]
+  scrollRef?: RefObject<HTMLDivElement | null>
+  onVerticalScroll?: (scrollTop: number) => void
 }
 
 const features = tableFeatures({
@@ -81,9 +83,10 @@ function formatDate(value: string) {
   }
 }
 
-export function TaskTable({ projectId, tasks, rows, users }: TaskTableProps) {
+export function TaskTable({ projectId, tasks, rows, users, scrollRef, onVerticalScroll }: TaskTableProps) {
   const { selectedTaskId, selectTask, openSidePanel } = useAppStore()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const internalRef = useRef<HTMLDivElement>(null)
+  const containerRef = scrollRef ?? internalRef
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
 
   const data = useMemo<TaskRow[]>(
@@ -176,6 +179,9 @@ export function TaskTable({ projectId, tasks, rows, users }: TaskTableProps) {
         ref={containerRef}
         className="min-h-0 flex-1 overflow-auto"
         tabIndex={0}
+        onScroll={() => {
+          if (containerRef.current) onVerticalScroll?.(containerRef.current.scrollTop)
+        }}
         onKeyDown={(event) => {
           if (event.key !== 'Tab' || !selectedTaskId) return
 
