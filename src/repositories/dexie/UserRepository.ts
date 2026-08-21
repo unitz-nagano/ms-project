@@ -3,10 +3,7 @@ import { db } from '@/lib/db'
 import type { User } from '@/lib/db'
 import type { UserRepository, CreateUserInput, UpdateUserInput } from '@/repositories/types'
 
-const PRESET_COLORS = [
-  '#6366f1', '#f59e0b', '#10b981', '#ef4444',
-  '#3b82f6', '#a855f7', '#ec4899', '#14b8a6',
-]
+const PRESET_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#a855f7', '#ec4899', '#14b8a6']
 
 export class DexieUserRepository implements UserRepository {
   async findAll(): Promise<User[]> {
@@ -33,6 +30,10 @@ export class DexieUserRepository implements UserRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await db.users.delete(id)
+    await db.transaction('rw', db.users, db.tasks, async () => {
+      await db.users.delete(id)
+      const assignedTasks = await db.tasks.where('assigneeId').equals(id).toArray()
+      await Promise.all(assignedTasks.map((task) => db.tasks.update(task.id, { assigneeId: undefined })))
+    })
   }
 }

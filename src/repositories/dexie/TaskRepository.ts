@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { db } from '@/lib/db'
 import type { Task } from '@/lib/db'
+import { getDescendantTaskIds } from '@/lib/task-tree'
 import type { TaskRepository, CreateTaskInput, UpdateTaskInput } from '@/repositories/types'
 
 export class DexieTaskRepository implements TaskRepository {
@@ -27,8 +28,12 @@ export class DexieTaskRepository implements TaskRepository {
 
   async delete(id: string): Promise<void> {
     await db.transaction('rw', db.tasks, db.dependencies, async () => {
-      await db.dependencies.where('predecessorId').equals(id).or('successorId').equals(id).delete()
-      await db.tasks.delete(id)
+      const tasks = await db.tasks.toArray()
+      const descendantIds = getDescendantTaskIds(tasks, id)
+      const targetIds = [id, ...descendantIds]
+
+      await db.dependencies.where('predecessorId').anyOf(targetIds).or('successorId').anyOf(targetIds).delete()
+      await db.tasks.bulkDelete(targetIds)
     })
   }
 }
