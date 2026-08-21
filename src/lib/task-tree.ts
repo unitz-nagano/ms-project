@@ -85,3 +85,27 @@ export function getDescendantTaskIds(tasks: Task[], taskId: string) {
 export function getNextTaskOrder(tasks: Task[]) {
   return tasks.reduce((maxOrder, task) => Math.max(maxOrder, task.order), -1) + 1
 }
+
+export function hasCycle(
+  existingDeps: { predecessorId: string; successorId: string }[],
+  newPredId: string,
+  newSuccId: string,
+): boolean {
+  const adj = new Map<string, string[]>()
+  for (const d of existingDeps) {
+    const list = adj.get(d.predecessorId) ?? []
+    list.push(d.successorId)
+    adj.set(d.predecessorId, list)
+  }
+  // newSuccId から newPredId に到達できればサイクル
+  const visited = new Set<string>()
+  const stack = [newSuccId]
+  while (stack.length) {
+    const cur = stack.pop()!
+    if (cur === newPredId) return true
+    if (visited.has(cur)) continue
+    visited.add(cur)
+    for (const next of adj.get(cur) ?? []) stack.push(next)
+  }
+  return false
+}

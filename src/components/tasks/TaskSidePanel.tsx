@@ -3,12 +3,13 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import { Trash2, X } from 'lucide-react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
-import { taskRepository } from '@/repositories'
-import type { Task, User } from '@/lib/db'
-import { getDescendantTaskIds } from '@/lib/task-tree'
+import { taskRepository, dependencyRepository } from '@/repositories'
+import { db, type Task, type User } from '@/lib/db'
+import { getDescendantTaskIds, hasCycle } from '@/lib/task-tree'
 
 interface TaskSidePanelProps {
   tasks: Task[]
@@ -37,6 +38,21 @@ function createFormState(task: Task): TaskFormState {
 
 function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tasks: Task[]; users: User[]; onClose: () => void }) {
   const [formState, setFormState] = useState<TaskFormState>(() => createFormState(task))
+  const deps = useLiveQuery(
+    () => db.dependencies.where('successorId').equals(task.id).toArray(),
+    [task.id],
+    [],
+  )
+
+  const handleAddDep = async (predecessorId: string) => {
+    if (!predecessorId) return
+    if (deps.some((d) => d.predecessorId === predecessorId)) return
+    if (hasCycle(deps, predecessorId, task.id)) {
+      alert('循環依存が発生するため追加できません')
+      return
+    }
+    await dependencyRepository.create({ predecessorId, successorId: task.id, type: 'FS', lag: 0 })
+  }
 
   const handleSave = async () => {
     await taskRepository.update(task.id, {
@@ -139,6 +155,44 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
           />
           <span className="text-sm font-medium text-zinc-700">マイルストーン</span>
         </label>
+
+        <div className="space-y-2">
+          <span className="text-sm font-medium text-zinc-700">先行タスク（FS）</span>
+          {deps.length > 0 && (
+            <ul className="space-y-1">
+              {deps.map((dep) => {
+                const pred = tasks.find((t) => t.id === dep.predecessorId)
+                return (
+                  <li key={dep.id} className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-sm">
+                    <span className="truncate text-zinc-700">{pred?.name ?? '不明'}</span>
+                    <button
+                      type="button"
+                      className="ml-2 shrink-0 text-zinc-400 hover:text-red-500"
+                      onClick={() => void dependencyRepository.delete(dep.id)}
+                      aria-label="依存を削除"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          <select
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            value=""
+            onChange={(e) => void handleAddDep(e.target.value)}
+          >
+            <option value="">先行タスクを追加...</option>
+            {tasks
+              .filter((t) => t.id !== task.id && !deps.some((d) => d.predecessorId === t.id))
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </select>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-5 py-4">
