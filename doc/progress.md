@@ -1,13 +1,13 @@
 # 実装進捗
 
-最終更新: 2026-08-21
+最終更新: 2026-08-21（Phase 1 完了）
 
 ## フェーズ一覧
 
 | # | フェーズ | ステータス |
 |---|---|---|
 | 0 | 決定事項を潰す | ✅ 完了 |
-| 1 | 土台セットアップ | 🔲 未着手 |
+| 1 | 土台セットアップ | ✅ 完了 |
 | 2 | タスク CRUD | 🔲 未着手 |
 | 3 | ガント描画（read-only） | 🔲 未着手 |
 | 4 | ガント操作（ドラッグ / リサイズ） | 🔲 未着手 |
@@ -37,21 +37,21 @@
 
 ---
 
-## Phase 1 🔲 未着手
+## Phase 1 ✅ 完了
 
 **土台セットアップ**
 
-- [ ] `create-next-app`（App Router + TypeScript + Tailwind）
-- [ ] shadcn/ui 導入
-- [ ] Dexie.js 導入、DB スキーマ定義（`src/lib/db.ts`）
-- [ ] Repository interface 定義（`src/repositories/`）
-- [ ] DexieTaskRepository 実装
-- [ ] Zustand store 初期設定
-- [ ] Framer Motion 導入
-- [ ] date-fns 導入
-- [ ] Vitest 設定
-- [ ] `next.config.js` に `output: 'export'` 設定
-- [ ] git コミット
+- [x] `create-next-app`（App Router + TypeScript + Tailwind）
+- [x] shadcn/ui 導入
+- [x] Dexie.js 導入、DB スキーマ定義（`src/lib/db.ts`）
+- [x] Repository interface 定義（`src/repositories/types.ts`）
+- [x] DexieProjectRepository / DexieTaskRepository / DexieUserRepository 実装
+- [x] Zustand store 初期設定（`src/store/useAppStore.ts`）
+- [x] Framer Motion 導入
+- [x] date-fns 導入
+- [x] Vitest 設定
+- [x] `next.config.ts` に `output: 'export'` 設定
+- [x] git コミット
 
 ---
 
