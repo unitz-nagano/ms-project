@@ -55,14 +55,19 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
   }
 
   const handleSave = async () => {
-    await taskRepository.update(task.id, {
-      name: formState.name.trim() || task.name,
-      startDate: formState.startDate,
-      endDate: formState.endDate,
-      progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
-      assigneeId: formState.assigneeId || undefined,
-      isMilestone: formState.isMilestone,
-    })
+    try {
+      await taskRepository.update(task.id, {
+        name: formState.name.trim() || task.name,
+        startDate: formState.startDate,
+        endDate: formState.endDate,
+        progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
+        assigneeId: formState.assigneeId || undefined,
+        isMilestone: formState.isMilestone,
+      })
+    } catch (err) {
+      console.error('Failed to save task:', err)
+      alert('保存に失敗しました')
+    }
   }
 
   const handleDelete = async () => {
@@ -74,8 +79,13 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
 
     if (!window.confirm(message)) return
 
-    await taskRepository.delete(task.id)
-    onClose()
+    try {
+      await taskRepository.delete(task.id)
+      onClose()
+    } catch (err) {
+      console.error('Failed to delete task:', err)
+      alert('削除に失敗しました')
+    }
   }
 
   return (

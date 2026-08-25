@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
@@ -36,7 +36,15 @@ export default function ProjectDetailPage() {
   const dependencies = useLiveQuery(() => db.dependencies.toArray(), [], EMPTY_DEPS)
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false)
   const [tableWidth, setTableWidth] = useState(520)
-  const { isSidePanelOpen, panelWidth } = useAppStore()
+  const { isSidePanelOpen, panelWidth, closeSidePanel } = useAppStore()
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeSidePanel()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [closeSidePanel])
 
   const tableScrollRef = useRef<HTMLDivElement>(null)
   const ganttScrollRef = useRef<HTMLDivElement>(null)

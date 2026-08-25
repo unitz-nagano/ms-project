@@ -128,7 +128,11 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
     setDrag(null)
     setPreview(null)
     if (startDate !== origStartDate || endDate !== origEndDate) {
-      await taskRepository.update(taskId, { startDate, endDate })
+      try {
+        await taskRepository.update(taskId, { startDate, endDate })
+      } catch (err) {
+        console.error('Failed to update task dates:', err)
+      }
     }
   }
 
@@ -242,11 +246,25 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
 
             const h = 16
             const y = cy - h / 2
+            const progressW = Math.max(barW * (task.progress / 100), task.progress > 0 ? 6 : 0)
             return (
               <g key={task.id} opacity={isDragging ? 0.7 : 1}>
                 <rect x={x} y={y} width={barW} height={h} rx={3} fill={color} opacity={0.25} />
                 {task.progress > 0 && (
-                  <rect x={x} y={y} width={Math.max(barW * (task.progress / 100), 6)} height={h} rx={3} fill={color} />
+                  <rect x={x} y={y} width={progressW} height={h} rx={3} fill={color} />
+                )}
+                {barW >= 40 && task.progress > 0 && (
+                  <text
+                    x={x + Math.min(progressW / 2, barW / 2)}
+                    y={cy + 4}
+                    fontSize={9}
+                    fill="white"
+                    textAnchor="middle"
+                    fontFamily="inherit"
+                    pointerEvents="none"
+                  >
+                    {task.progress}%
+                  </text>
                 )}
                 {/* 左リサイズハンドル */}
                 <rect
