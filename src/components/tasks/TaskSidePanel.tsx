@@ -22,7 +22,6 @@ interface TaskFormState {
   endDate: string
   progress: string
   assigneeId: string
-  isMilestone: boolean
 }
 
 function createFormState(task: Task): TaskFormState {
@@ -32,12 +31,14 @@ function createFormState(task: Task): TaskFormState {
     endDate: task.endDate,
     progress: String(task.progress),
     assigneeId: task.assigneeId ?? '',
-    isMilestone: task.isMilestone,
   }
 }
 
 function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tasks: Task[]; users: User[]; onClose: () => void }) {
   const [formState, setFormState] = useState<TaskFormState>(() => createFormState(task))
+  const hasChildren = useMemo(() => tasks.some((t) => t.parentId === task.id), [tasks, task.id])
+  // startDate === endDate なら自動マイルストーン（task-tree.ts と同じ判定）
+  const isMilestone = task.isMilestone || task.startDate === task.endDate
   const deps = useLiveQuery(
     () => db.dependencies.where('successorId').equals(task.id).toArray(),
     [task.id],
@@ -58,11 +59,15 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
     try {
       await taskRepository.update(task.id, {
         name: formState.name.trim() || task.name,
-        startDate: formState.startDate,
-        endDate: formState.endDate,
-        progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
+        // hasChildren のときは日付・進捗を送らない（子から自動集計のため）
+        ...(hasChildren
+          ? {}
+          : {
+              startDate: formState.startDate,
+              endDate: formState.endDate,
+              progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
+            }),
         assigneeId: formState.assigneeId || undefined,
-        isMilestone: formState.isMilestone,
       })
     } catch (err) {
       console.error('Failed to save task:', err)
@@ -112,34 +117,46 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
         </label>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-2">
+          <div className="block space-y-2">
             <span className="text-sm font-medium text-zinc-700">開始日</span>
-            <Input
-              type="date"
-              value={formState.startDate}
-              onChange={(event) => setFormState((current) => ({ ...current, startDate: event.target.value }))}
-            />
-          </label>
-          <label className="block space-y-2">
+            <div title={hasChildren ? '子タスクから自動算出されます' : undefined}>
+              <Input
+                type="date"
+                value={hasChildren ? task.startDate : formState.startDate}
+                disabled={hasChildren}
+                className={hasChildren ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => setFormState((current) => ({ ...current, startDate: event.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="block space-y-2">
             <span className="text-sm font-medium text-zinc-700">終了日</span>
-            <Input
-              type="date"
-              value={formState.endDate}
-              onChange={(event) => setFormState((current) => ({ ...current, endDate: event.target.value }))}
-            />
-          </label>
+            <div title={hasChildren ? '子タスクから自動算出されます' : undefined}>
+              <Input
+                type="date"
+                value={hasChildren ? task.endDate : formState.endDate}
+                disabled={hasChildren}
+                className={hasChildren ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => setFormState((current) => ({ ...current, endDate: event.target.value }))}
+              />
+            </div>
+          </div>
         </div>
 
-        <label className="block space-y-2">
+        <div className="block space-y-2">
           <span className="text-sm font-medium text-zinc-700">進捗 (%)</span>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={formState.progress}
-            onChange={(event) => setFormState((current) => ({ ...current, progress: event.target.value }))}
-          />
-        </label>
+          <div title={hasChildren ? '子タスクから自動算出されます' : undefined}>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={hasChildren ? String(task.progress) : formState.progress}
+              disabled={hasChildren}
+              className={hasChildren ? 'cursor-not-allowed opacity-60' : ''}
+              onChange={(event) => setFormState((current) => ({ ...current, progress: event.target.value }))}
+            />
+          </div>
+        </div>
 
         <label className="block space-y-2">
           <span className="text-sm font-medium text-zinc-700">担当者</span>
@@ -157,14 +174,12 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
           </select>
         </label>
 
-        <label className="flex items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3">
-          <input
-            type="checkbox"
-            checked={formState.isMilestone}
-            onChange={(event) => setFormState((current) => ({ ...current, isMilestone: event.target.checked }))}
-          />
-          <span className="text-sm font-medium text-zinc-700">マイルストーン</span>
-        </label>
+        {isMilestone && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <span className="text-amber-600">◇</span>
+            <span className="text-sm font-medium text-amber-700">マイルストーン</span>
+          </div>
+        )}
 
         <div className="space-y-2">
           <span className="text-sm font-medium text-zinc-700">先行タスク（FS）</span>

@@ -226,10 +226,12 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
                   onPointerDown={(e) => handleBarPointerDown(e, task, 'move')}
                 />
               )
+              // リサイズハンドルなし（マイルストーンは点なので不要）
             }
 
             if (task.hasChildren) {
               return (
+                // ponytail: サマリータスクは子から自動集計のため操作不可
                 <rect
                   key={task.id}
                   x={x}
@@ -238,8 +240,7 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
                   height={6}
                   rx={1}
                   fill="#374151"
-                  style={{ cursor: 'grab' }}
-                  onPointerDown={(e) => handleBarPointerDown(e, task, 'move')}
+                  style={{ pointerEvents: 'none' }}
                 />
               )
             }

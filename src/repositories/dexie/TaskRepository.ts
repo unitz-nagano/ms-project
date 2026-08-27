@@ -20,7 +20,20 @@ export class DexieTaskRepository implements TaskRepository {
   }
 
   async update(id: string, input: UpdateTaskInput): Promise<Task> {
-    await db.tasks.update(id, input)
+    const patch: UpdateTaskInput = { ...input }
+    // startDate と endDate が両方揃っているときだけ isMilestone を自動セット
+    if (patch.startDate !== undefined && patch.endDate !== undefined) {
+      patch.isMilestone = patch.startDate === patch.endDate
+    } else if (patch.startDate !== undefined || patch.endDate !== undefined) {
+      // 片方だけ更新された場合は既存レコードと合わせて判定
+      const current = await db.tasks.get(id)
+      if (current) {
+        const s = patch.startDate ?? current.startDate
+        const e = patch.endDate ?? current.endDate
+        patch.isMilestone = s === e
+      }
+    }
+    await db.tasks.update(id, patch)
     const updated = await db.tasks.get(id)
     if (!updated) throw new Error(`Task ${id} not found`)
     return updated
