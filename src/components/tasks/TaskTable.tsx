@@ -136,7 +136,7 @@ export function TaskTable({ projectId, tasks, rows, users, scrollRef, onVertical
       isManual: false,
     })
 
-    openSidePanel(createdTask.id)
+    openSidePanel(createdTask.id, true)
   }
 
   const handleIndent = async (targetId: string) => {

@@ -48,15 +48,18 @@ function TaskSidePanelContent({
   tasks,
   users,
   calendar,
+  isNewTask,
   onClose,
 }: {
   task: Task
   tasks: Task[]
   users: User[]
   calendar: CalendarConfig
+  isNewTask: boolean
   onClose: () => void
 }) {
   const [formState, setFormState] = useState<TaskFormState>(() => createFormState(task))
+  const [showSaved, setShowSaved] = useState(false)
   const hasChildren = useMemo(() => tasks.some((t) => t.parentId === task.id), [tasks, task.id])
   // startDate === endDate なら自動マイルストーン（task-tree.ts と同じ判定）
   const isMilestone = task.isMilestone || task.startDate === task.endDate
@@ -138,6 +141,14 @@ function TaskSidePanelContent({
             }),
         assigneeId: formState.assigneeId || undefined,
       })
+      if (isNewTask) {
+        // 追加直後のタスクは保存＝作成確定とみなしてパネルを閉じる。
+        // 開いたままだと同じフォームへの再保存が「新規作成」ではなく「既存タスクの編集」になり紛らわしいため
+        onClose()
+      } else {
+        setShowSaved(true)
+        setTimeout(() => setShowSaved(false), 2000)
+      }
     } catch (err) {
       console.error('Failed to save task:', err)
       alert('保存に失敗しました')
@@ -338,7 +349,8 @@ function TaskSidePanelContent({
           <Trash2 className="h-4 w-4" />
           削除
         </button>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {showSaved && <span className="text-sm text-emerald-600">保存しました</span>}
           <Button className="bg-zinc-200 text-zinc-900 hover:bg-zinc-300" onClick={onClose}>
             閉じる
           </Button>
@@ -350,7 +362,7 @@ function TaskSidePanelContent({
 }
 
 export function TaskSidePanel({ tasks, users, calendar }: TaskSidePanelProps) {
-  const { selectedTaskId, isSidePanelOpen, closeSidePanel, panelWidth } = useAppStore()
+  const { selectedTaskId, isSidePanelOpen, isCreatingNewTask, closeSidePanel, panelWidth } = useAppStore()
   const task = useMemo(
     () => tasks.find((candidate) => candidate.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
@@ -367,7 +379,15 @@ export function TaskSidePanel({ tasks, users, calendar }: TaskSidePanelProps) {
           className="fixed inset-y-0 right-0 z-50 border-l border-zinc-200 bg-white shadow-2xl"
           style={{ width: panelWidth }}
         >
-          <TaskSidePanelContent key={task.id} task={task} tasks={tasks} users={users} calendar={calendar} onClose={closeSidePanel} />
+          <TaskSidePanelContent
+            key={task.id}
+            task={task}
+            tasks={tasks}
+            users={users}
+            calendar={calendar}
+            isNewTask={isCreatingNewTask}
+            onClose={closeSidePanel}
+          />
         </motion.div>
       ) : null}
     </AnimatePresence>
