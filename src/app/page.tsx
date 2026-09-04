@@ -10,6 +10,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useProjects } from '@/hooks/useProjects'
 import { projectRepository } from '@/repositories'
+import { DEFAULT_CALENDAR } from '@/lib/scheduling'
 
 const DEFAULT_PROJECT_FORM = {
   name: '',
@@ -42,6 +43,9 @@ export default function Home() {
       name: trimmedName,
       startDate: formState.startDate,
       endDate: formState.endDate || undefined,
+      hoursPerDay: DEFAULT_CALENDAR.hoursPerDay,
+      nonWorkingWeekdays: DEFAULT_CALENDAR.nonWorkingWeekdays,
+      nonWorkingDates: DEFAULT_CALENDAR.nonWorkingDates,
     })
 
     setFormState(DEFAULT_PROJECT_FORM)

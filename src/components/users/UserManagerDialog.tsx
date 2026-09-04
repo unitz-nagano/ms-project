@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Trash2, Users } from 'lucide-react'
+import { Pencil, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,8 @@ interface UserManagerDialogProps {
 export function UserManagerDialog({ open, onClose, tasks = [] }: UserManagerDialogProps) {
   const users = useUsers()
   const [name, setName] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
   const assigneeCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const task of tasks) {
@@ -34,6 +36,26 @@ export function UserManagerDialog({ open, onClose, tasks = [] }: UserManagerDial
 
     await userRepository.create({ name: trimmedName, color: '' })
     setName('')
+  }
+
+  const handleStartEdit = (user: User) => {
+    setEditingId(user.id)
+    setEditingName(user.name)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditingName('')
+  }
+
+  const handleSaveEdit = async () => {
+    const trimmedName = editingName.trim()
+    if (!editingId || !trimmedName) {
+      handleCancelEdit()
+      return
+    }
+    await userRepository.update(editingId, { name: trimmedName })
+    handleCancelEdit()
   }
 
   const handleDelete = async (user: User) => {
@@ -62,7 +84,7 @@ export function UserManagerDialog({ open, onClose, tasks = [] }: UserManagerDial
               onChange={(event) => setName(event.target.value)}
               placeholder="例: 佐藤 花子"
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   void handleCreate()
                 }
@@ -82,18 +104,47 @@ export function UserManagerDialog({ open, onClose, tasks = [] }: UserManagerDial
             <div className="space-y-2">
               {users.map((user) => (
                 <div key={user.id} className="flex items-center justify-between rounded-xl border border-zinc-200 px-4 py-3">
-                  <div className="space-y-1">
-                    <UserBadge name={user.name} color={user.color} />
-                    <p className="text-xs text-zinc-500">担当中タスク: {assigneeCounts.get(user.id) ?? 0}</p>
+                  {editingId === user.id ? (
+                    <Input
+                      autoFocus
+                      value={editingName}
+                      onChange={(event) => setEditingName(event.target.value)}
+                      onBlur={() => void handleSaveEdit()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                          event.preventDefault()
+                          void handleSaveEdit()
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault()
+                          handleCancelEdit()
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                  ) : (
+                    <div className="space-y-1">
+                      <UserBadge name={user.name} color={user.color} />
+                      <p className="text-xs text-zinc-500">担当中タスク: {assigneeCounts.get(user.id) ?? 0}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="rounded-md p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
+                      onClick={() => handleStartEdit(user)}
+                      aria-label={`${user.name} を編集`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md p-2 text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
+                      onClick={() => void handleDelete(user)}
+                      aria-label={`${user.name} を削除`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="rounded-md p-2 text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
-                    onClick={() => void handleDelete(user)}
-                    aria-label={`${user.name} を削除`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
               ))}
             </div>

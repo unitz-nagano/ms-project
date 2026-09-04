@@ -15,6 +15,7 @@ import { UserBadge } from '@/components/users/UserBadge'
 import { useAppStore } from '@/store/useAppStore'
 import { taskRepository } from '@/repositories'
 import { getNextTaskOrder, type OrderedTask } from '@/lib/task-tree'
+import { DEFAULT_CALENDAR, durationToWork } from '@/lib/scheduling'
 import type { Task, User } from '@/lib/db'
 
 interface TaskTableProps {
@@ -130,9 +131,12 @@ export function TaskTable({ projectId, tasks, rows, users, scrollRef, onVertical
       order: nextOrder,
       assigneeId: undefined,
       isExpanded: true,
+      duration: 1,
+      work: durationToWork(1, DEFAULT_CALENDAR.hoursPerDay),
+      isManual: false,
     })
 
-    openSidePanel(createdTask.id)
+    openSidePanel(createdTask.id, true)
   }
 
   const handleIndent = async (targetId: string) => {

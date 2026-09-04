@@ -5,6 +5,7 @@ import { differenceInCalendarDays, parseISO, format, addDays } from 'date-fns'
 import type { OrderedTask } from '@/lib/task-tree'
 import type { Dependency, User } from '@/lib/db'
 import { taskRepository } from '@/repositories'
+import { countWorkdays, durationToWork, type CalendarConfig } from '@/lib/scheduling'
 
 // ponytail: ROW_H must match TaskTable td height (py-2 + text-sm ≈ 36px)
 const DAY_W = 40
@@ -16,6 +17,7 @@ interface GanttViewProps {
   visibleTasks: OrderedTask[]
   users: User[]
   dependencies: Dependency[]
+  calendar: CalendarConfig
   scrollRef?: RefObject<HTMLDivElement | null>
   onVerticalScroll?: (scrollTop: number) => void
 }
@@ -28,7 +30,7 @@ type DragState = {
   origEndDate: string
 }
 
-export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVerticalScroll }: GanttViewProps) {
+export function GanttView({ visibleTasks, users, dependencies, calendar, scrollRef, onVerticalScroll }: GanttViewProps) {
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   const [drag, setDrag] = useState<DragState | null>(null)
   const [preview, setPreview] = useState<{ startDate: string; endDate: string } | null>(null)
@@ -129,7 +131,16 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
     setPreview(null)
     if (startDate !== origStartDate || endDate !== origEndDate) {
       try {
-        await taskRepository.update(taskId, { startDate, endDate })
+        const task = visibleTasks.find((t) => t.id === taskId)
+        const duration = task?.isMilestone ? 0 : countWorkdays(parseISO(startDate), parseISO(endDate), calendar)
+        // ponytail: ドラッグ操作は「ユーザーがその日付を意図した」とみなし、自動→手動に切り替える
+        await taskRepository.update(taskId, {
+          startDate,
+          endDate,
+          isManual: true,
+          duration,
+          work: durationToWork(duration, calendar.hoursPerDay),
+        })
       } catch (err) {
         console.error('Failed to update task dates:', err)
       }
@@ -226,10 +237,12 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
                   onPointerDown={(e) => handleBarPointerDown(e, task, 'move')}
                 />
               )
+              // リサイズハンドルなし（マイルストーンは点なので不要）
             }
 
             if (task.hasChildren) {
               return (
+                // ponytail: サマリータスクは子から自動集計のため操作不可
                 <rect
                   key={task.id}
                   x={x}
@@ -238,8 +251,7 @@ export function GanttView({ visibleTasks, users, dependencies, scrollRef, onVert
                   height={6}
                   rx={1}
                   fill="#374151"
-                  style={{ cursor: 'grab' }}
-                  onPointerDown={(e) => handleBarPointerDown(e, task, 'move')}
+                  style={{ pointerEvents: 'none' }}
                 />
               )
             }

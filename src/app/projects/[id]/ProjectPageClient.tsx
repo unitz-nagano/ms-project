@@ -8,13 +8,13 @@ import { ArrowLeft, Users } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Button } from '@/components/ui/button'
 import { GanttView } from '@/components/gantt/GanttView'
-import type { Dependency } from '@/lib/db'
 import { TaskSidePanel } from '@/components/tasks/TaskSidePanel'
 import { TaskTable } from '@/components/tasks/TaskTable'
 import { UserManagerDialog } from '@/components/users/UserManagerDialog'
 import { useTasks } from '@/hooks/useTasks'
 import { useUsers } from '@/hooks/useUsers'
 import { db } from '@/lib/db'
+import { calendarFromProject } from '@/lib/scheduling'
 import { useAppStore } from '@/store/useAppStore'
 
 function formatDate(value?: string) {
@@ -32,8 +32,6 @@ export default function ProjectPageClient() {
   const project = useLiveQuery(() => db.projects.get(projectId), [projectId], undefined)
   const taskData = useTasks(projectId)
   const users = useUsers()
-  const EMPTY_DEPS: Dependency[] = []
-  const dependencies = useLiveQuery(() => db.dependencies.toArray(), [], EMPTY_DEPS)
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false)
   const [tableWidth, setTableWidth] = useState(520)
   const { isSidePanelOpen, panelWidth, closeSidePanel } = useAppStore()
@@ -137,14 +135,15 @@ export default function ProjectPageClient() {
           <GanttView
             visibleTasks={taskData.visibleTasks}
             users={users}
-            dependencies={dependencies}
+            dependencies={taskData.dependencies}
+            calendar={calendarFromProject(project)}
             scrollRef={ganttScrollRef}
             onVerticalScroll={syncTableScroll}
           />
         </section>
       </div>
 
-      <TaskSidePanel tasks={taskData.orderedTasks} users={users} />
+      <TaskSidePanel tasks={taskData.orderedTasks} users={users} calendar={calendarFromProject(project)} />
       <UserManagerDialog open={isUserDialogOpen} onClose={() => setIsUserDialogOpen(false)} tasks={taskData.orderedTasks} />
 
       {isSidePanelOpen ? <div className="pointer-events-none fixed inset-y-0 right-0 border-l border-zinc-200" style={{ width: panelWidth }} /> : null}

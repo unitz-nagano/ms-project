@@ -4,16 +4,19 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import { Trash2, X } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { format, parseISO } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
 import { taskRepository, dependencyRepository } from '@/repositories'
 import { db, type Task, type User } from '@/lib/db'
 import { getDescendantTaskIds, hasCycle } from '@/lib/task-tree'
+import { addWorkdays, countWorkdays, durationToWork, nextWorkingDay, workToDuration, type CalendarConfig } from '@/lib/scheduling'
 
 interface TaskSidePanelProps {
   tasks: Task[]
   users: User[]
+  calendar: CalendarConfig
 }
 
 interface TaskFormState {
@@ -22,7 +25,9 @@ interface TaskFormState {
   endDate: string
   progress: string
   assigneeId: string
-  isMilestone: boolean
+  duration: string
+  work: string
+  isManual: boolean
 }
 
 function createFormState(task: Task): TaskFormState {
@@ -32,17 +37,54 @@ function createFormState(task: Task): TaskFormState {
     endDate: task.endDate,
     progress: String(task.progress),
     assigneeId: task.assigneeId ?? '',
-    isMilestone: task.isMilestone,
+    duration: String(task.duration),
+    work: String(task.work),
+    isManual: task.isManual,
   }
 }
 
-function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tasks: Task[]; users: User[]; onClose: () => void }) {
+function TaskSidePanelContent({
+  task,
+  tasks,
+  users,
+  calendar,
+  isNewTask,
+  onClose,
+}: {
+  task: Task
+  tasks: Task[]
+  users: User[]
+  calendar: CalendarConfig
+  isNewTask: boolean
+  onClose: () => void
+}) {
   const [formState, setFormState] = useState<TaskFormState>(() => createFormState(task))
+  const [showSaved, setShowSaved] = useState(false)
+  const hasChildren = useMemo(() => tasks.some((t) => t.parentId === task.id), [tasks, task.id])
+  // startDate === endDate なら自動マイルストーン（task-tree.ts と同じ判定）
+  const isMilestone = task.isMilestone || task.startDate === task.endDate
   const deps = useLiveQuery(
     () => db.dependencies.where('successorId').equals(task.id).toArray(),
     [task.id],
     [],
   )
+  const hasPredecessors = deps.length > 0
+  // 自動(依存あり)は開始日・終了日とも計算値でロック。自動(依存なし)は開始日のみ手入力の起点。手動は両方editable
+  const startDateEditable = !hasChildren && (formState.isManual || !hasPredecessors)
+  const endDateEditable = !hasChildren && formState.isManual
+  // Duration/Work は「自動スケジュール」タスクのみ直接編集可（手動タスクは日付が正なので逆算表示のみ）。
+  // duration=0 の入力自体がマイルストーンを表すので、isMilestone ではロックしない
+  const durationEditable = !hasChildren && !formState.isManual
+  const displayDuration = hasChildren
+    ? task.startDate === task.endDate
+      ? 0
+      : countWorkdays(parseISO(task.startDate), parseISO(task.endDate), calendar)
+    : durationEditable
+      ? Number(formState.duration) || 0
+      : formState.startDate === formState.endDate
+        ? 0
+        : countWorkdays(parseISO(formState.startDate), parseISO(formState.endDate), calendar)
+  const displayWork = durationEditable ? Number(formState.work) || 0 : durationToWork(displayDuration, calendar.hoursPerDay)
 
   const handleAddDep = async (predecessorId: string) => {
     if (!predecessorId) return
@@ -54,16 +96,59 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
     await dependencyRepository.create({ predecessorId, successorId: task.id, type: 'FS', lag: 0 })
   }
 
+  const handleDurationChange = (value: string) => {
+    const duration = Math.max(0, Number(value) || 0)
+    setFormState((current) => ({ ...current, duration: String(duration), work: String(durationToWork(duration, calendar.hoursPerDay)) }))
+  }
+
+  const handleWorkChange = (value: string) => {
+    const work = Math.max(0, Number(value) || 0)
+    setFormState((current) => ({ ...current, work: String(work), duration: String(workToDuration(work, calendar.hoursPerDay)) }))
+  }
+
   const handleSave = async () => {
     try {
+      let duration = task.duration
+      let work = task.work
+      let endDate = formState.endDate
+      if (durationEditable) {
+        // duration=0 は「点」であるマイルストーンを表す
+        duration = Math.max(0, Number(formState.duration) || 0)
+        work = Math.max(0, Number(formState.work) || 0)
+        // このタスクの実際の終了日はDB非破壊の自動計算(computeAutomaticDates)が都度算出するが、
+        // isMilestone判定や次回表示の起点として矛盾のない値をDBにも書いておく
+        const anchor = parseISO(startDateEditable ? formState.startDate : task.startDate)
+        const computedEnd = duration <= 0 ? nextWorkingDay(anchor, calendar) : addWorkdays(anchor, duration, calendar)
+        endDate = format(computedEnd, 'yyyy-MM-dd')
+      } else if (formState.isManual && !hasChildren) {
+        // 手動: ユーザーが指定した日付間隔から逆算して保存しておく
+        duration = formState.startDate === formState.endDate ? 0 : countWorkdays(parseISO(formState.startDate), parseISO(formState.endDate), calendar)
+        work = durationToWork(duration, calendar.hoursPerDay)
+      }
+
       await taskRepository.update(task.id, {
         name: formState.name.trim() || task.name,
-        startDate: formState.startDate,
-        endDate: formState.endDate,
-        progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
+        // hasChildren のときは日付・進捗を送らない（子から自動集計のため）
+        ...(hasChildren
+          ? {}
+          : {
+              ...(startDateEditable ? { startDate: formState.startDate } : {}),
+              ...(endDateEditable || durationEditable ? { endDate } : {}),
+              progress: Math.min(100, Math.max(0, Number(formState.progress) || 0)),
+              duration,
+              work,
+              isManual: formState.isManual,
+            }),
         assigneeId: formState.assigneeId || undefined,
-        isMilestone: formState.isMilestone,
       })
+      if (isNewTask) {
+        // 追加直後のタスクは保存＝作成確定とみなしてパネルを閉じる。
+        // 開いたままだと同じフォームへの再保存が「新規作成」ではなく「既存タスクの編集」になり紛らわしいため
+        onClose()
+      } else {
+        setShowSaved(true)
+        setTimeout(() => setShowSaved(false), 2000)
+      }
     } catch (err) {
       console.error('Failed to save task:', err)
       alert('保存に失敗しました')
@@ -111,35 +196,87 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
           <Input value={formState.name} onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))} />
         </label>
 
+        <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+          <input
+            type="checkbox"
+            checked={formState.isManual}
+            disabled={hasChildren}
+            onChange={(event) => setFormState((current) => ({ ...current, isManual: event.target.checked }))}
+          />
+          手動スケジュール
+          <span className="font-normal text-zinc-400">（オフ＝依存関係とカレンダーから自動計算）</span>
+        </label>
+
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-2">
+          <div className="block space-y-2">
             <span className="text-sm font-medium text-zinc-700">開始日</span>
-            <Input
-              type="date"
-              value={formState.startDate}
-              onChange={(event) => setFormState((current) => ({ ...current, startDate: event.target.value }))}
-            />
-          </label>
-          <label className="block space-y-2">
+            <div title={!startDateEditable ? '依存関係・子タスクから自動算出されます' : undefined}>
+              <Input
+                type="date"
+                value={hasChildren ? task.startDate : formState.startDate}
+                disabled={!startDateEditable}
+                className={!startDateEditable ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => setFormState((current) => ({ ...current, startDate: event.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="block space-y-2">
             <span className="text-sm font-medium text-zinc-700">終了日</span>
-            <Input
-              type="date"
-              value={formState.endDate}
-              onChange={(event) => setFormState((current) => ({ ...current, endDate: event.target.value }))}
-            />
-          </label>
+            <div title={!endDateEditable ? '期間・依存関係・子タスクから自動算出されます' : undefined}>
+              <Input
+                type="date"
+                value={hasChildren ? task.endDate : formState.endDate}
+                disabled={!endDateEditable}
+                className={!endDateEditable ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => setFormState((current) => ({ ...current, endDate: event.target.value }))}
+              />
+            </div>
+          </div>
         </div>
 
-        <label className="block space-y-2">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="block space-y-2">
+            <span className="text-sm font-medium text-zinc-700">期間（稼働日）</span>
+            <div title={!durationEditable ? '日付や子タスクから自動算出されます' : undefined}>
+              <Input
+                type="number"
+                min={0}
+                value={durationEditable ? formState.duration : String(displayDuration)}
+                disabled={!durationEditable}
+                className={!durationEditable ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => handleDurationChange(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="block space-y-2">
+            <span className="text-sm font-medium text-zinc-700">工数（人時）</span>
+            <div title={!durationEditable ? '期間から自動算出されます' : undefined}>
+              <Input
+                type="number"
+                min={0}
+                value={durationEditable ? formState.work : String(displayWork)}
+                disabled={!durationEditable}
+                className={!durationEditable ? 'cursor-not-allowed opacity-60' : ''}
+                onChange={(event) => handleWorkChange(event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="block space-y-2">
           <span className="text-sm font-medium text-zinc-700">進捗 (%)</span>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={formState.progress}
-            onChange={(event) => setFormState((current) => ({ ...current, progress: event.target.value }))}
-          />
-        </label>
+          <div title={hasChildren ? '子タスクから自動算出されます' : undefined}>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={hasChildren ? String(task.progress) : formState.progress}
+              disabled={hasChildren}
+              className={hasChildren ? 'cursor-not-allowed opacity-60' : ''}
+              onChange={(event) => setFormState((current) => ({ ...current, progress: event.target.value }))}
+            />
+          </div>
+        </div>
 
         <label className="block space-y-2">
           <span className="text-sm font-medium text-zinc-700">担当者</span>
@@ -157,14 +294,12 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
           </select>
         </label>
 
-        <label className="flex items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3">
-          <input
-            type="checkbox"
-            checked={formState.isMilestone}
-            onChange={(event) => setFormState((current) => ({ ...current, isMilestone: event.target.checked }))}
-          />
-          <span className="text-sm font-medium text-zinc-700">マイルストーン</span>
-        </label>
+        {isMilestone && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <span className="text-amber-600">◇</span>
+            <span className="text-sm font-medium text-amber-700">マイルストーン</span>
+          </div>
+        )}
 
         <div className="space-y-2">
           <span className="text-sm font-medium text-zinc-700">先行タスク（FS）</span>
@@ -214,7 +349,8 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
           <Trash2 className="h-4 w-4" />
           削除
         </button>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {showSaved && <span className="text-sm text-emerald-600">保存しました</span>}
           <Button className="bg-zinc-200 text-zinc-900 hover:bg-zinc-300" onClick={onClose}>
             閉じる
           </Button>
@@ -225,8 +361,8 @@ function TaskSidePanelContent({ task, tasks, users, onClose }: { task: Task; tas
   )
 }
 
-export function TaskSidePanel({ tasks, users }: TaskSidePanelProps) {
-  const { selectedTaskId, isSidePanelOpen, closeSidePanel, panelWidth } = useAppStore()
+export function TaskSidePanel({ tasks, users, calendar }: TaskSidePanelProps) {
+  const { selectedTaskId, isSidePanelOpen, isCreatingNewTask, closeSidePanel, panelWidth } = useAppStore()
   const task = useMemo(
     () => tasks.find((candidate) => candidate.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
@@ -243,7 +379,15 @@ export function TaskSidePanel({ tasks, users }: TaskSidePanelProps) {
           className="fixed inset-y-0 right-0 z-50 border-l border-zinc-200 bg-white shadow-2xl"
           style={{ width: panelWidth }}
         >
-          <TaskSidePanelContent key={task.id} task={task} tasks={tasks} users={users} onClose={closeSidePanel} />
+          <TaskSidePanelContent
+            key={task.id}
+            task={task}
+            tasks={tasks}
+            users={users}
+            calendar={calendar}
+            isNewTask={isCreatingNewTask}
+            onClose={closeSidePanel}
+          />
         </motion.div>
       ) : null}
     </AnimatePresence>
