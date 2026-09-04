@@ -67,7 +67,7 @@ export class AppDB extends Dexie {
     this.version(2)
       .stores({
         projects: 'id, createdAt',
-        tasks: 'id, projectId, parentId, order',
+        tasks: 'id, projectId, parentId, order, assigneeId',
         dependencies: 'id, predecessorId, successorId',
         users: 'id',
       })
@@ -97,3 +97,11 @@ export class AppDB extends Dexie {
 }
 
 export const db = new AppDB()
+
+// ponytail: スキーマ更新後に古いタブが開きっぱなしだと version upgrade がブロックされ、
+// 保存系の呼び出しが無反応(何も起きない)に見える。原因を可視化するだけの最小対応
+if (typeof window !== 'undefined') {
+  db.on('blocked', () => {
+    alert('他のタブでこのアプリが開かれているため、データ更新がブロックされています。他のタブを閉じてから再読み込みしてください。')
+  })
+}

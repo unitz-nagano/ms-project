@@ -62,7 +62,7 @@ export function UserManagerDialog({ open, onClose, tasks = [] }: UserManagerDial
               onChange={(event) => setName(event.target.value)}
               placeholder="例: 佐藤 花子"
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   void handleCreate()
                 }
